@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "cstdlib": "c",
+        "*.tcc": "c",
+        "memory": "c",
+        "new": "c",
+        "stdlib.h": "c",
+        "stddef.h": "c",
+        "util.h": "c"
+    }
+}

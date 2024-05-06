@@ -1,0 +1,7 @@
+*.o
+*.elf
+*.img
+*.dasm
+./bin/kernel.img
+./bin/flag
+./bin/qemu-system-aarch64

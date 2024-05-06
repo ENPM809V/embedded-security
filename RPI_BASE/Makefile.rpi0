@@ -1,0 +1,59 @@
+CC = arm-none-eabi-gcc
+LD = arm-none-eabi-ld
+DUMP = arm-none-eabi-objdump
+COPY = arm-none-eabi-objcopy
+CFLAGS = -Wall -O2 \
+		-ffreestanding \
+		-nostdinc \
+		-nostdlib \
+		-nostartfiles \
+		-mfloat-abi=hard \
+    	-mfpu=vfp \
+    	-march=armv6zk \
+   		-mtune=arm1176jzf-s \
+		-funroll-loops \
+		-I./srcs/include \
+		-DRPI0     #I had intentions to support other Pi's but didnt have time to test them 
+
+
+all: clean $(KERN).img
+
+local: override CFLAGS += -D LOCAL=1
+local: all
+
+qemu:
+	$(eval TAR=qemu)
+
+start.o: srcs/Main/start32.S
+	$(CC) $(CFLAGS) -c srcs/Main/start32.S -o build/start.o
+
+$(BUILDDIR)/%.o: %.c $(DEPS)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(KERN).img: clean start.o $(OBJS)
+	$(LD) -nostdlib -nostartfiles build/start.o $(COMMON_OBJS) $(CHALLENGE_OBJS) $(MAIN_OBJS) -T link-$(TAR).ld -o build/$(KERN).elf
+	$(DUMP) -d build/$(KERN).elf > build/$(KERN).dasm
+	$(COPY) -O binary build/$(KERN).elf build/$(KERN).img
+
+deploy: $(KERN).img #create image and write to sdcard
+	./make_card.sh $(KERN).img
+	sudo ./write_card.sh card.rpi.img
+	
+deploy-local: override CFLAGS += -D LOCAL=1
+deploy-local: deploy
+
+debug: qemu $(KERN).img  #debug in QEMU with instructions
+	qemu-system-aarch64 -M raspi0 -kernel $(BUILDDIR)/$(KERN).img -serial null -serial stdio -d in_asm
+
+run: qemu $(KERN).img    #run in QEMU
+	qemu-system-aarch64 -M raspi0 -kernel $(BUILDDIR)/$(KERN).img -serial null -serial stdio
+
+qemu-build: qemu $(KERN).img
+
+local-run: override CFLAGS += -D LOCAL=1
+local-run: run
+
+gdb: qemu $(KERN).img 
+	qemu-system-aarch64 -M raspi0 -kernel $(BUILDDIR)/$(KERN).img -serial null -serial stdio -S -gdb tcp::4269 -boot c 
+	# gdb-multiarch -x debug.gdb
+

@@ -1,0 +1,105 @@
+
+SRCS = $(wildcard *.c)
+OBJS = $(SRCS:.c=.o)
+ifeq ($(RPI0), 1)
+CC = arm-none-eabi
+CFLAGS = -Wall -O2 \
+		-ffreestanding \
+		-nostdinc \
+		-nostdlib \
+		-nostartfiles \
+		-mfloat-abi=hard \
+    	-mfpu=vfp \
+    	-march=armv6zk \
+   		-mtune=arm1176jzf-s \
+		-funroll-loops \
+		-DRPI0     #I had intentions to support other Pi's but didnt have time to test them 
+endif
+ifeq ($(RPI3), 1)
+CC = aarch64-linux-gnu
+CFLAGS = -Wall -O2 \
+		-ffreestanding \
+		-nostdinc \
+		-nostdlib \
+		-nostartfiles \
+    	-march=armv8-a \
+   		-mtune=cortex-a53 \
+		-funroll-loops \
+		-DRPI3     #I had intentions to support other Pi's but didnt have time to test them 
+endif
+
+KERN = kernel
+TAR = hw
+
+
+all: clean $(KERN).img
+
+local: override CFLAGS += -D LOCAL=1
+local: all
+
+qemu:
+	$(eval TAR=qemu)
+
+ifeq ($(RPI0),1)
+start.o: start32.S
+	$(CC)-gcc $(CFLAGS) -c start32.S -o start.o
+endif
+
+ifeq ($(RPI3),1)
+start.o: start.S
+	$(CC)-gcc $(CFLAGS) -c start.S -o start.o
+endif
+
+%.o: %.c
+	$(CC)-gcc $(CFLAGS) -c $< -o $@
+
+$(KERN).img: clean start.o $(OBJS)
+	$(CC)-ld -nostdlib -nostartfiles start.o $(OBJS) -T link-$(TAR).ld -o $(KERN).elf
+	$(CC)-objdump -d $(KERN).elf > $(KERN).dasm
+	$(CC)-objcopy -O binary $(KERN).elf $(KERN).img
+
+qemu-build: qemu $(KERN).img
+
+deploy: $(KERN).img #create image and write to sdcard
+	./make_card.sh $(KERN).img
+	sudo ./write_card.sh card.rpi.img
+	
+deploy-local: override CFLAGS += -D LOCAL=1
+deploy-local: deploy
+
+ifeq ($(RPI0),1)
+debug: qemu $(KERN).img  #debug in QEMU with instructions
+	qemu-system-aarch64 -M raspi0 -kernel $(KERN).img -serial null -serial stdio -d in_asm
+
+run: qemu $(KERN).img    #run in QEMU
+	qemu-system-aarch64 -M raspi0 -kernel $(KERN).img -serial null -serial stdio
+
+qemu-build: qemu $(KERN).img
+
+local-run: override CFLAGS += -D LOCAL=1
+local-run: run
+
+gdb: qemu $(KERN).img 
+	qemu-system-aarch64 -M raspi0 -kernel $(KERN).img -serial null -serial stdio -S -gdb tcp::4269 -boot c 
+	# gdb-multiarch -x debug.gdb
+endif 
+
+ifeq ($(RPI3),1)
+debug: qemu $(KERN).img  #debug in QEMU with instructions
+	qemu-system-aarch64 -M raspi3b -kernel $(KERN).img -serial null -serial stdio -d in_asm
+
+run: qemu $(KERN).img    #run in QEMU
+	qemu-system-aarch64 -M raspi3b -kernel $(KERN).img -serial null -serial stdio
+
+local-run: override CFLAGS += -D LOCAL=1
+local-run: run
+
+gdb: qemu $(KERN).img 
+	qemu-system-aarch64 -M raspi3b -kernel $(KERN).img -serial null -serial stdio -S -gdb tcp::4269 -boot c 
+	# gdb-multiarch -x debug.gdb
+endif 
+
+qemu-build: qemu $(KERN).img
+
+clean:
+	rm *.img $(KERN).elf $(KERN).dasm *.o >/dev/null 2>/dev/null || true
